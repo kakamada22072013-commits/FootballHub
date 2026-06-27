@@ -14,6 +14,15 @@ const LANGUAGE_PROMPTS: Record<string, string> = {
   en: "Respond in English only.",
   fr: "Réponds en Français uniquement.",
   ar: "استجب باللغة العربية فقط.",
+  de: "Antworte nur auf Deutsch.",
+  es: "Responde solo en Español.",
+  pt: "Responda apenas em Português.",
+  ru: "Отвечай только на Русском.",
+  zh: "请只用中文回答。",
+  ja: "日本語でのみ回答してください。",
+  hi: "केवल हिंदी में उत्तर दें।",
+  bn: "শুধুমাত্র বাংলায় উত্তর দিন।",
+  ur: "صرف اردو میں جواب دیں۔",
 };
 
 function buildSystemPrompt(context: PageContext, language = "en"): string {
@@ -112,7 +121,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        model: "moonshotai/Kimi-K2.7-Code:novita",
+        model: "Qwen/Qwen2.5-7B-Instruct",
         messages: apiMessages,
         temperature: 0.7,
         max_tokens: 512,
