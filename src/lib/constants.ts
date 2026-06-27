@@ -86,5 +86,4 @@ export const NAV_LINKS = [
   { href: "/matches", label: "Matches", icon: "Calendar" },
   { href: "/countries", label: "Countries", icon: "Globe" },
   { href: "/favourites", label: "Favourites", icon: "Heart" },
-  { href: "/profile", label: "Profile", icon: "User" },
 ] as const;

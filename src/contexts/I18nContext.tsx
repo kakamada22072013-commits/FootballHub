@@ -11,11 +11,20 @@ import {
 import en from "@/lib/i18n/dictionaries/en";
 import fr from "@/lib/i18n/dictionaries/fr";
 import ar from "@/lib/i18n/dictionaries/ar";
+import de from "@/lib/i18n/dictionaries/de";
+import es from "@/lib/i18n/dictionaries/es";
+import zh from "@/lib/i18n/dictionaries/zh";
+import ja from "@/lib/i18n/dictionaries/ja";
+import ru from "@/lib/i18n/dictionaries/ru";
+import hi from "@/lib/i18n/dictionaries/hi";
+import bn from "@/lib/i18n/dictionaries/bn";
+import pt from "@/lib/i18n/dictionaries/pt";
+import ur from "@/lib/i18n/dictionaries/ur";
 import type { Translations } from "@/lib/i18n/dictionaries/en";
 
-export type Language = "en" | "fr" | "ar";
+export type Language = "en" | "fr" | "ar" | "de" | "es" | "zh" | "ja" | "ru" | "hi" | "bn" | "pt" | "ur";
 
-const dictionaries: Record<Language, Translations> = { en, fr, ar };
+const dictionaries: Record<Language, Translations> = { en, fr, ar, de, es, zh, ja, ru, hi, bn, pt, ur };
 
 interface I18nContextValue {
   locale: Language;
@@ -46,11 +55,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
+    const rtlLangs: Language[] = ["ar", "ur"];
+    document.documentElement.dir = rtlLangs.includes(locale) ? "rtl" : "ltr";
     document.documentElement.lang = locale;
   }, [locale]);
 
-  const dir = locale === "ar" ? "rtl" : "ltr";
+  const rtlLangs: Language[] = ["ar", "ur"];
+  const dir = rtlLangs.includes(locale) ? "rtl" : "ltr";
   const t = dictionaries[locale] || en;
 
   return (

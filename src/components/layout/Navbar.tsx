@@ -37,6 +37,15 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 const LANGUAGES: { code: Language; label: string; flag: string }[] = [
   { code: "en", label: "EN", flag: "🇬🇧" },
   { code: "fr", label: "FR", flag: "🇫🇷" },
+  { code: "de", label: "DE", flag: "🇩🇪" },
+  { code: "es", label: "ES", flag: "🇪🇸" },
+  { code: "pt", label: "PT", flag: "🇵🇹" },
+  { code: "ru", label: "RU", flag: "🇷🇺" },
+  { code: "zh", label: "中文", flag: "🇨🇳" },
+  { code: "ja", label: "日本語", flag: "🇯🇵" },
+  { code: "hi", label: "हिन्दी", flag: "🇮🇳" },
+  { code: "bn", label: "বাংলা", flag: "🇧🇩" },
+  { code: "ur", label: "اردو", flag: "🇵🇰" },
   { code: "ar", label: "AR", flag: "🇸🇦" },
 ];
 
