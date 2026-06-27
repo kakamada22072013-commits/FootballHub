@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, X, Send, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { Bot, X, Send, Sparkles, ChevronDown, ChevronUp, ImagePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePageContext } from "@/contexts/PageContext";
 import { useAIActions } from "@/contexts/AIActionContext";
 import { useI18n } from "@/contexts/I18nContext";
-import type { Message, AIResponse } from "@/types/ai-actions";
+import type { Message, AIResponse, ContentPart } from "@/types/ai-actions";
 
 const SUGGESTIONS_EN = [
   "Open Real Madrid",
@@ -48,6 +48,14 @@ function formatMarkdown(text: string): string {
     .replace(/\n/g, "<br/>");
 }
 
+function renderContent(content: string | ContentPart[]): string {
+  if (typeof content === "string") return formatMarkdown(content);
+  return content
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => formatMarkdown(p.text))
+    .join(" ");
+}
+
 export function AIAssistant() {
   const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
@@ -61,7 +69,10 @@ export function AIAssistant() {
   ]);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
+  const [imageData, setImageData] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const pageContext = usePageContext();
   const { executeActions } = useAIActions();
 
@@ -86,13 +97,38 @@ export function AIAssistant() {
     }
   };
 
-  const sendMessage = async (text: string) => {
-    if (!text.trim()) return;
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setImageData(dataUrl);
+      setImagePreview(dataUrl);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
 
-    const userMsg: Message = { id: Date.now().toString(), role: "user", content: text };
+  const buildContent = (text: string): string | ContentPart[] => {
+    if (!imageData) return text;
+    const parts: ContentPart[] = [{ type: "text", text }];
+    if (imageData) parts.push({ type: "image_url", image_url: { url: imageData } });
+    return parts;
+  };
+
+  const sendMessage = async (text: string) => {
+    if (!text.trim() && !imageData) return;
+
+    const finalText = text.trim() || "What's in this image?";
+    const content = buildContent(finalText);
+    const userMsg: Message = { id: Date.now().toString(), role: "user", content };
     const updatedMessages = [...messagesRef.current, userMsg];
     setMessages(updatedMessages);
     setInput("");
+    setImageData(null);
+    setImagePreview(null);
     setTyping(true);
 
     try {
@@ -133,10 +169,20 @@ export function AIAssistant() {
         content: t.ai.chatCleared,
       },
     ]);
+    setImageData(null);
+    setImagePreview(null);
   };
 
   return (
     <>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageSelect}
+      />
+
       <motion.button
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.95 }}
@@ -213,10 +259,30 @@ export function AIAssistant() {
                               ? "bg-gradient-to-r from-neon-green/20 to-neon-blue/20 border border-neon-green/20"
                               : "glass"
                           )}
-                          dangerouslySetInnerHTML={{
-                            __html: formatMarkdown(msg.content),
-                          }}
-                        />
+                        >
+                          {typeof msg.content === "string" ? (
+                            <span dangerouslySetInnerHTML={{ __html: formatMarkdown(msg.content) }} />
+                          ) : (
+                            <div className="space-y-2">
+                              {msg.content.map((part, i) => {
+                                if (part.type === "text") {
+                                  return <span key={i} dangerouslySetInnerHTML={{ __html: formatMarkdown(part.text) }} />;
+                                }
+                                if (part.type === "image_url") {
+                                  return (
+                                    <img
+                                      key={i}
+                                      src={part.image_url.url}
+                                      alt="Uploaded"
+                                      className="max-w-full rounded-lg max-h-48 object-cover"
+                                    />
+                                  );
+                                }
+                                return null;
+                              })}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ))}
                     {typing && (
@@ -233,7 +299,25 @@ export function AIAssistant() {
                     <div ref={bottomRef} />
                   </div>
 
-                  {messages.length <= 1 && (
+                  {imagePreview && (
+                    <div className="px-4 pb-2">
+                      <div className="relative inline-block">
+                        <img
+                          src={imagePreview}
+                          alt="Preview"
+                          className="h-20 rounded-lg border border-neon-green/30"
+                        />
+                        <button
+                          onClick={() => { setImageData(null); setImagePreview(null); }}
+                          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center"
+                        >
+                          X
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {messages.length <= 1 && !imagePreview && (
                     <div className="px-4 pb-2 flex flex-wrap gap-2">
                       {getSuggestions().map((s) => (
                         <button
@@ -254,6 +338,14 @@ export function AIAssistant() {
                     }}
                     className="p-4 border-t border-white/10 flex gap-2"
                   >
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      className="p-2.5 rounded-xl bg-slate-800/80 border border-white/10 hover:border-neon-green/40 transition-colors"
+                      title="Attach image"
+                    >
+                      <ImagePlus className="w-5 h-5" />
+                    </button>
                     <input
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
@@ -262,7 +354,7 @@ export function AIAssistant() {
                     />
                     <button
                       type="submit"
-                      disabled={!input.trim() || typing}
+                      disabled={(!input.trim() && !imageData) || typing}
                       className="btn-primary p-2.5 disabled:opacity-50"
                     >
                       <Send className="w-5 h-5" />

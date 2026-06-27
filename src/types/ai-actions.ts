@@ -47,8 +47,20 @@ export interface AIResponse {
   requiresConfirmation?: boolean;
 }
 
+export interface ImageContent {
+  type: "image_url";
+  image_url: { url: string };
+}
+
+export interface TextContent {
+  type: "text";
+  text: string;
+}
+
+export type ContentPart = TextContent | ImageContent;
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
-  content: string;
+  content: string | ContentPart[];
 }

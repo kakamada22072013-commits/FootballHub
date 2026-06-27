@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { AIAction, AIResponse, PageContext } from "@/types/ai-actions";
+import type { AIAction, AIResponse, PageContext, ContentPart } from "@/types/ai-actions";
 
 const VALID_ACTION_TYPES = [
   "navigate", "open_team", "open_player", "open_league", "open_match",
@@ -25,7 +25,8 @@ const LANGUAGE_PROMPTS: Record<string, string> = {
   ur: "صرف اردو میں جواب دیں۔",
 };
 
-const MODELS = ["Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-Coder-7B-Instruct"];
+const TEXT_MODELS = ["Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-Coder-7B-Instruct"];
+const VISION_MODELS = ["CohereLabs/command-a-vision-07-2025", "Qwen/Qwen3-VL-8B-Instruct"];
 
 function buildSystemPrompt(context: PageContext, language = "en"): string {
   const langInstruction = LANGUAGE_PROMPTS[language] || LANGUAGE_PROMPTS.en;
@@ -64,8 +65,9 @@ INSTRUCTIONS:
 4. You can include multiple actions in the array.
 5. If no action is needed, omit the actions block.
 6. For football knowledge questions (history, stats, players), answer from your training data.
-7. Use **bold** sparingly for emphasis.
-8. Detect the user's language and respond in the same language.`;
+7. If the user shares an image, identify what's in it and provide relevant football info.
+8. Use **bold** sparingly for emphasis.
+9. Detect the user's language and respond in the same language.`;
 }
 
 function extractActions(text: string): AIAction[] {
@@ -90,7 +92,28 @@ function cleanText(text: string): string {
   return text.replace(/```actions\n[\s\S]*?```/g, "").trim();
 }
 
-async function callHF(token: string, messages: { role: string; content: string }[], model: string) {
+function hasImageContent(messages: { content: string | ContentPart[] }[]): boolean {
+  return messages.some((m) =>
+    Array.isArray(m.content) && m.content.some((p) => p.type === "image_url")
+  );
+}
+
+function sanitizeContent(content: string | ContentPart[]): string | ContentPart[] {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map((p) => {
+    if (p.type === "text") return { type: "text", text: String(p.text) };
+    if (p.type === "image_url") return { type: "image_url", image_url: { url: String(p.image_url.url).slice(0, 500000) } };
+    return p;
+  });
+  return String(content);
+}
+
+async function callHF(
+  token: string,
+  messages: { role: string; content: string | ContentPart[] }[],
+  model: string,
+  signal?: AbortSignal
+) {
   const response = await fetch("https://router.huggingface.co/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -101,8 +124,9 @@ async function callHF(token: string, messages: { role: string; content: string }
       model,
       messages,
       temperature: 0.7,
-      max_tokens: 512,
+      max_tokens: 1024,
     }),
+    signal,
   });
 
   if (!response.ok) {
@@ -121,7 +145,7 @@ async function callHF(token: string, messages: { role: string; content: string }
 }
 
 interface ChatRequest {
-  messages: { role: "user" | "assistant"; content: string }[];
+  messages: { role: "user" | "assistant"; content: string | ContentPart[] }[];
   pageContext: PageContext;
   language?: string;
 }
@@ -141,24 +165,26 @@ export async function POST(req: NextRequest) {
 
     const systemMsg = { role: "system" as const, content: buildSystemPrompt(pageContext, language) };
 
-    const apiMessages = [
-      systemMsg,
-      ...messages.slice(-10).map((m) => {
-        const c = m.content;
-        return { role: m.role, content: typeof c === "string" ? c : String(c ?? "") };
-      }),
-    ];
+    const apiMessages = [systemMsg, ...messages.slice(-6).map((m) => ({
+      role: m.role,
+      content: sanitizeContent(m.content),
+    }))];
+
+    const hasImage = hasImageContent(apiMessages);
+    const models = hasImage ? VISION_MODELS : TEXT_MODELS;
 
     let lastError = "";
-    for (const model of MODELS) {
+    for (const model of models) {
       try {
-        const raw = await callHF(token, apiMessages, model);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), hasImage ? 120000 : 60000);
+        const raw = await callHF(token, apiMessages, model, controller.signal);
+        clearTimeout(timeout);
         const actions = extractActions(raw);
         const text = cleanText(raw);
         return NextResponse.json<AIResponse>({ text, actions });
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
-        console.warn(`Model ${model} failed:`, lastError);
       }
     }
 
@@ -169,7 +195,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json<AIResponse>(
-      { text: `Sorry, I encountered an error: ${msg}`, actions: [] },
+      { text: `Sorry, I encountered an error.`, actions: [] },
       { status: 200 }
     );
   }
