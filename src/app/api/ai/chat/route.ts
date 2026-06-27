@@ -25,6 +25,8 @@ const LANGUAGE_PROMPTS: Record<string, string> = {
   ur: "صرف اردو میں جواب دیں۔",
 };
 
+const MODELS = ["Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-Coder-7B-Instruct"];
+
 function buildSystemPrompt(context: PageContext, language = "en"): string {
   const langInstruction = LANGUAGE_PROMPTS[language] || LANGUAGE_PROMPTS.en;
   return `You are FootballHub AI, an intelligent assistant for a football (soccer) platform. ${langInstruction}
@@ -88,6 +90,36 @@ function cleanText(text: string): string {
   return text.replace(/```actions\n[\s\S]*?```/g, "").trim();
 }
 
+async function callHF(token: string, messages: { role: string; content: string }[], model: string) {
+  const response = await fetch("https://router.huggingface.co/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 512,
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "Unknown error");
+    throw new Error(`API ${response.status}: ${errText}`);
+  }
+
+  const json = await response.json();
+  const raw = json.choices?.[0]?.message?.content || "";
+
+  if (!raw || json.error) {
+    throw new Error(json.error || "Empty response");
+  }
+
+  return raw;
+}
+
 interface ChatRequest {
   messages: { role: "user" | "assistant"; content: string }[];
   pageContext: PageContext;
@@ -107,49 +139,33 @@ export async function POST(req: NextRequest) {
     const body: ChatRequest = await req.json();
     const { messages, pageContext, language = "en" } = body;
 
-    const systemMsg = { role: "system", content: buildSystemPrompt(pageContext, language) };
+    const systemMsg = { role: "system" as const, content: buildSystemPrompt(pageContext, language) };
 
     const apiMessages = [
       systemMsg,
-      ...messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+      ...messages.slice(-10).map((m) => {
+        const c = m.content;
+        return { role: m.role, content: typeof c === "string" ? c : String(c ?? "") };
+      }),
     ];
 
-    const response = await fetch("https://router.huggingface.co/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        model: "Qwen/Qwen2.5-7B-Instruct",
-        messages: apiMessages,
-        temperature: 0.7,
-        max_tokens: 512,
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "Unknown error");
-      return NextResponse.json<AIResponse>(
-        { text: `Sorry, I encountered an error: ${errText}`, actions: [] },
-        { status: 200 }
-      );
+    let lastError = "";
+    for (const model of MODELS) {
+      try {
+        const raw = await callHF(token, apiMessages, model);
+        const actions = extractActions(raw);
+        const text = cleanText(raw);
+        return NextResponse.json<AIResponse>({ text, actions });
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        console.warn(`Model ${model} failed:`, lastError);
+      }
     }
 
-    const json = await response.json();
-    const raw = json.choices?.[0]?.message?.content || "";
-
-    if (raw.includes("Cannot read") || json.error) {
-      return NextResponse.json<AIResponse>(
-        { text: "Sorry, the AI model returned an unexpected response. Please try again.", actions: [] },
-        { status: 200 }
-      );
-    }
-
-    const actions = extractActions(raw);
-    const text = cleanText(raw);
-
-    return NextResponse.json<AIResponse>({ text, actions });
+    return NextResponse.json<AIResponse>(
+      { text: "Sorry, the AI service is temporarily unavailable. Please try again in a moment.", actions: [] },
+      { status: 200 }
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json<AIResponse>(
